@@ -591,6 +591,11 @@ HTML_TEMPLATE = r"""<!doctype html>
             ${prediction.markets.length ? prediction.markets.map((m, i) => `<p>${i + 1}. ${m.name} - <b>${m.prob}%</b> <span class="pill ${m.confidence}">${m.confidence}</span></p>`).join("") : "<p class='empty'>No hay mercado fuerte con estos datos.</p>"}
           </div>
         </div>
+        <div class="panel">
+          <h3>Marcadores mas probables</h3>
+          <p class="empty" style="padding:0 0 10px">Son ~100 marcadores posibles, por eso cada uno individual da un porcentaje bajo (normal). Para decisiones conviene mirar los mercados agrupados de arriba (1X2, over/under, ambos marcan), no un marcador exacto solo.</p>
+          ${prediction.topScores.map((s, i) => `<p>${i + 1}. ${s.score} - <b>${s.prob}%</b></p>`).join("")}
+        </div>
         <div class="grid">
           <div class="panel"><h3>Local</h3>${teamBlock(competition, home, "home")}</div>
           <div class="panel"><h3>Visitante</h3>${teamBlock(competition, away, "away")}</div>
@@ -657,7 +662,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       }
       const btts = Math.max(0, 1 - homeZero - awayZero + bothZero);
       scores.sort((a, b) => b[2] - a[2]);
-      return { homeWin, draw, awayWin, over15, over25, btts, topScores: scores.slice(0, 3) };
+      return { homeWin, draw, awayWin, over15, over25, btts, topScores: scores.slice(0, 5) };
     }
 
     function getStrength(competition, team) {
@@ -685,8 +690,8 @@ HTML_TEMPLATE = r"""<!doctype html>
       const over15 = round(result.over15 * 100, 1);
       const over25 = round(result.over25 * 100, 1);
       const btts = round(result.btts * 100, 1);
-      const bestScore = result.topScores[0];
-      const topScore = bestScore ? `${bestScore[0]}-${bestScore[1]} (${round(bestScore[2] * 100, 1)}%)` : "-";
+      const topScores = result.topScores.map(s => ({ score: `${s[0]}-${s[1]}`, prob: round(s[2] * 100, 1) }));
+      const topScore = topScores.length ? `${topScores[0].score} (${topScores[0].prob}%)` : "-";
 
       const markets = [];
       addMarket(markets, "Over 1.5 goles", over15, 70);
@@ -694,7 +699,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       addMarket(markets, `${home} o empate`, round(homeWin + draw, 1), 64);
       addMarket(markets, `${away} o empate`, round(awayWin + draw, 1), 64);
       addMarket(markets, "Ambos equipos marcan", btts, 62);
-      return { homeWin, draw, awayWin, totalGoals, over15, over25, btts, topScore, markets: markets.sort((x, y) => y.prob - x.prob) };
+      return { homeWin, draw, awayWin, totalGoals, over15, over25, btts, topScore, topScores, markets: markets.sort((x, y) => y.prob - x.prob) };
     }
 
     function renderDate() {

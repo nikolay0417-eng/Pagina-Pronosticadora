@@ -142,11 +142,15 @@ def format_prediction(prediction):
     else:
         lines.append("- No hay alertas fuertes de mercados a evitar.")
 
+    lines.append("")
+    lines.append("Marcadores mas probables:")
+    lines.extend(
+        f"{index}. {item['score']} - {item['probability']}%"
+        for index, item in enumerate(prediction["probable_scores"], start=1)
+    )
+
     lines.extend(
         [
-            "",
-            "Marcador probable:",
-            f"- {' o '.join(prediction['probable_scores'])}",
             "",
             f"Recomendacion general: {prediction['recommendation']}",
             f"Confianza: {prediction['confidence']}",
@@ -256,12 +260,10 @@ def _market_confidence(probability):
 
 
 def _probable_scores(top_scores):
-    scores = []
-    for home_goals, away_goals, _probability in top_scores:
-        label = f"{home_goals}-{away_goals}"
-        if label not in scores:
-            scores.append(label)
-    return scores[:2]
+    return [
+        {"score": f"{home_goals}-{away_goals}", "probability": round(probability * 100, 1)}
+        for home_goals, away_goals, probability in top_scores
+    ]
 
 
 def _advanced_markets(matches, home_team, away_team, competition, model_config=None):

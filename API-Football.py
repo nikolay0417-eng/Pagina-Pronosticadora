@@ -10,8 +10,22 @@ import requests
 
 
 BASE_URL = "https://api.football-data.org/v4"
-API_KEY = os.getenv("FOOTBALL_DATA_API_KEY")
+API_KEY_FILE = Path("api_key.txt")
 OUTPUT_DIR = Path("data")
+
+
+def _load_api_key():
+    env_key = os.getenv("FOOTBALL_DATA_API_KEY")
+    if env_key:
+        return env_key.strip()
+
+    if API_KEY_FILE.exists():
+        return API_KEY_FILE.read_text(encoding="utf-8").strip()
+
+    return None
+
+
+API_KEY = _load_api_key()
 
 
 def current_season_start_year():
@@ -86,6 +100,9 @@ class FootballDataClient:
         return self.get(f"/competitions/{competition_code}/matches", params=params).get(
             "matches", []
         )
+
+    def match_detail(self, match_id):
+        return self.get(f"/matches/{match_id}")
 
 
 def nested_get(data, path, default=None):
@@ -225,6 +242,70 @@ def print_empty_dataset_hint(args):
     )
 
 
+STATISTICS_FIELDS = [
+    "corner_kicks",
+    "free_kicks",
+    "goal_kicks",
+    "offsides",
+    "fouls",
+    "ball_possession",
+    "saves",
+    "throw_ins",
+    "shots",
+    "shots_on_goal",
+    "shots_off_goal",
+    "yellow_cards",
+    "yellow_red_cards",
+    "red_cards",
+]
+
+
+def test_match_statistics(client, competition_code, season=None, sample_size=5, pause_seconds=6):
+    print(f"Buscando los ultimos {sample_size} partidos finalizados de {competition_code}...")
+    matches = client.competition_matches(competition_code, season=season, status="FINISHED")
+    if not matches:
+        print("No encontre partidos finalizados para esa competicion.")
+        return
+
+    sample = matches[-sample_size:]
+    any_data_found = False
+
+    for index, match in enumerate(sample, start=1):
+        match_id = match.get("id")
+        home_name = nested_get(match, ["homeTeam", "name"], "?")
+        away_name = nested_get(match, ["awayTeam", "name"], "?")
+        print(f"\n[{index}/{len(sample)}] {home_name} vs {away_name} (id={match_id})")
+
+        detail = client.match_detail(match_id)
+        home_stats = nested_get(detail, ["homeTeam", "statistics"], {}) or {}
+        away_stats = nested_get(detail, ["awayTeam", "statistics"], {}) or {}
+
+        if not home_stats and not away_stats:
+            print("  Sin objeto 'statistics' en la respuesta (vacio).")
+        else:
+            any_data_found = True
+            for field in STATISTICS_FIELDS:
+                home_value = home_stats.get(field)
+                away_value = away_stats.get(field)
+                if home_value is not None or away_value is not None:
+                    print(f"  {field}: local={home_value} visitante={away_value}")
+
+        if index < len(sample):
+            time.sleep(pause_seconds)
+
+    print("")
+    if any_data_found:
+        print(
+            "Tu plan SI entrega estadisticas por partido via el endpoint de detalle. "
+            "Se puede armar un modo de recoleccion que las incluya (mas lento, 1 llamada por partido)."
+        )
+    else:
+        print(
+            "Tu plan no esta entregando estadisticas (corners, tarjetas, tiros libres, etc.) "
+            "ni siquiera en el endpoint de detalle. Es una limitacion del plan Free, no del codigo."
+        )
+
+
 def collect_all_competition_matches(client, season=None, status=None, pause_seconds=6):
     all_matches = []
     competitions = client.competitions()
@@ -320,6 +401,7 @@ def parse_args():
             "recent-all",
             "all-competitions",
             "competition-info",
+            "test-stats",
         ],
         default="recent-all",
         help="recent-all trae todas las competiciones disponibles desde --from-season; range trae partidos por fechas; competition trae una liga; history trae varias temporadas; recent-history trae una liga desde --from-season; all-competitions recorre todas las competiciones de una temporada; competition-info muestra temporadas disponibles.",
@@ -344,15 +426,22 @@ def parse_args():
         help="Filtra por estado del partido.",
     )
     parser.add_argument("--output", default="partidos")
+    parser.add_argument(
+        "--sample-size",
+        type=int,
+        default=5,
+        help="Cuantos partidos probar en --mode test-stats. Por defecto: 5.",
+    )
     return parser.parse_args()
 
 
 def main():
     if not API_KEY:
         raise SystemExit(
-            "Falta la variable de entorno FOOTBALL_DATA_API_KEY. "
-            "Consigue una key gratis en https://www.football-data.org/client/register y "
-            "definila con: $env:FOOTBALL_DATA_API_KEY = \"tu_key\" (PowerShell) antes de correr este script."
+            "Falta la API key de football-data.org. Consigue una gratis en "
+            "https://www.football-data.org/client/register y despues, en la carpeta del "
+            f"proyecto, crea un archivo llamado '{API_KEY_FILE}' con la key adentro (solo eso, "
+            "sin comillas ni nada mas)."
         )
 
     args = parse_args()
@@ -374,6 +463,9 @@ def main():
                 f"- {season.get('startDate')} a {season.get('endDate')} "
                 f"| id={season.get('id')} | actual={season.get('currentMatchday')}"
             )
+        return
+    elif args.mode == "test-stats":
+        test_match_statistics(client, args.competition, season=args.season, sample_size=args.sample_size)
         return
     elif args.mode == "competition":
         matches = client.competition_matches(

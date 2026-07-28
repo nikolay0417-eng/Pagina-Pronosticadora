@@ -213,7 +213,7 @@ def market_probabilities_from_matrix(matrix):
         "over_25": over_25,
         "over_35": over_35,
         "both_teams_score": both_teams_score,
-        "top_scores": score_probabilities[:3],
+        "top_scores": score_probabilities[:5],
     }
 
 
