@@ -1,11 +1,12 @@
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 
 from backtester import brier_score, evaluate_predictions, summarize_backtest
 from competitions import competition_label
-from data_loader import finished_matches, load_matches, upcoming_matches
+from data_loader import LOCAL_TZ, finished_matches, load_matches, upcoming_matches
 from metrics import team_summary
 from poisson_model import load_model_config, stat_strengths
 from predictor import predict_match
@@ -30,6 +31,7 @@ def build_payload(matches):
     model_config = load_model_config()
 
     return {
+        "generatedAt": datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M"),
         "summary": summary_metrics(matches, finished, upcoming),
         "competitions": competitions,
         "teamsByCompetition": teams_by_competition(matches),
@@ -463,6 +465,7 @@ HTML_TEMPLATE = r"""<!doctype html>
         <h2 id="viewTitle">Panel</h2>
         <span id="viewHint">Metricas y pronosticos visuales</span>
       </div>
+      <span id="updatedAt"></span>
     </div>
 
     <section id="view-predict" class="view"></section>
@@ -499,6 +502,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       document.querySelectorAll("nav button").forEach(btn => {
         btn.addEventListener("click", () => showView(btn.dataset.view));
       });
+      document.getElementById("updatedAt").textContent = `Actualizado: ${DATA.generatedAt}`;
       renderAll();
       showView("predict");
     }
