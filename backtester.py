@@ -10,8 +10,8 @@ from predictor import predict_match
 MIN_HISTORY_MATCHES = 6
 
 CALIBRATION_GRID = {
-    "half_life_days": [90, 200, 365],
-    "rho": [-0.03, -0.08, -0.13],
+    "half_life_days": [60, 120, 200, 300, 450],
+    "rho": [-0.15, -0.10, -0.05, -0.02, 0.0],
 }
 DEFAULT_SHRINKAGE_K = DEFAULT_CONFIG["shrinkage_k"]
 

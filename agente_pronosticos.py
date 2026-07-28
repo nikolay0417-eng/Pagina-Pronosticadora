@@ -326,8 +326,9 @@ def print_backtest(matches, competition=None, date_from=None, date_to=None, limi
 
 def print_calibrate(matches, competition=None, limit=70):
     print(
-        "Calibrando el modelo contra el historico (probando distintas combinaciones de "
-        "decaimiento temporal y correlacion Dixon-Coles). Esto puede tardar varios minutos..."
+        "Calibrando el modelo contra el historico (probando 25 combinaciones de "
+        "decaimiento temporal y correlacion Dixon-Coles). Esto puede tardar 10-15 minutos, "
+        "dejalo corriendo..."
     )
     best = calibrate_model(matches, competition=competition, limit=limit)
     if not best:
