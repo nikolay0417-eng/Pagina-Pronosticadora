@@ -306,6 +306,21 @@ def test_match_statistics(client, competition_code, season=None, sample_size=5, 
         )
 
 
+def _fetch_with_retry(fetch, retries=2, retry_wait=15):
+    attempt = 0
+    while True:
+        try:
+            return fetch()
+        except requests.HTTPError:
+            raise
+        except requests.exceptions.RequestException as error:
+            if attempt >= retries:
+                raise error
+            attempt += 1
+            print(f"  Corte de conexion ({error.__class__.__name__}), reintento {attempt}/{retries} en {retry_wait}s...")
+            time.sleep(retry_wait)
+
+
 def collect_all_competition_matches(client, season=None, status=None, pause_seconds=6):
     all_matches = []
     competitions = client.competitions()
@@ -318,9 +333,11 @@ def collect_all_competition_matches(client, season=None, status=None, pause_seco
 
         print(f"[{index}/{len(competitions)}] Descargando {name} ({code})...")
         try:
-            matches = client.competition_matches(code, season=season, status=status)
+            matches = _fetch_with_retry(
+                lambda: client.competition_matches(code, season=season, status=status)
+            )
             all_matches.extend(matches)
-        except requests.HTTPError as error:
+        except requests.exceptions.RequestException as error:
             print(f"  No se pudo descargar {code}: {error}")
 
         time.sleep(pause_seconds)
@@ -335,13 +352,15 @@ def collect_competition_history(client, competition_code, seasons, status=None, 
     for index, season in enumerate(seasons, start=1):
         print(f"[{index}/{len(seasons)}] Descargando {competition_code} temporada {season}...")
         try:
-            matches = client.competition_matches(
-                competition_code,
-                season=str(season),
-                status=status,
+            matches = _fetch_with_retry(
+                lambda: client.competition_matches(
+                    competition_code,
+                    season=str(season),
+                    status=status,
+                )
             )
             all_matches.extend(matches)
-        except requests.HTTPError as error:
+        except requests.exceptions.RequestException as error:
             print(f"  No se pudo descargar {competition_code} {season}: {error}")
 
         time.sleep(pause_seconds)
@@ -372,13 +391,15 @@ def collect_all_competitions_history(client, seasons, status=None, pause_seconds
                 f"Descargando {name} ({code}) temporada {season}..."
             )
             try:
-                matches = client.competition_matches(
-                    code,
-                    season=str(season),
-                    status=status,
+                matches = _fetch_with_retry(
+                    lambda: client.competition_matches(
+                        code,
+                        season=str(season),
+                        status=status,
+                    )
                 )
                 all_matches.extend(matches)
-            except requests.HTTPError as error:
+            except requests.exceptions.RequestException as error:
                 print(f"  No se pudo descargar {code} {season}: {error}")
 
             time.sleep(pause_seconds)
