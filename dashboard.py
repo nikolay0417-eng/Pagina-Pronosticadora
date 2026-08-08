@@ -543,6 +543,10 @@ HTML_TEMPLATE = r"""<!doctype html>
       ["health", "8. Revisar datos avanzados", "Disponibilidad de corners, tarjetas y estadisticas extra."]
     ];
     const COLORS = ["#0f766e", "#2563eb", "#b45309", "#7c3aed", "#be123c", "#15803d", "#475569"];
+    // Mismas lineas y misma muestra minima confiable que usa predictor.py.
+    const CORNER_LINES = [7.5, 8.5, 9.5, 10.5, 11.5];
+    const CARD_LINES = [2.5, 3.5, 4.5, 5.5];
+    const RELIABLE_STAT_SAMPLE = 60;
     let activeView = "predict";
 
     init();
@@ -726,11 +730,6 @@ HTML_TEMPLATE = r"""<!doctype html>
       if (comp && comp.teams[team]) return comp.teams[team];
       return { attack: 1, defense: 1 };
     }
-
-    // Mismas lineas y misma muestra minima confiable que usa predictor.py.
-    const CORNER_LINES = [7.5, 8.5, 9.5, 10.5, 11.5];
-    const CARD_LINES = [2.5, 3.5, 4.5, 5.5];
-    const RELIABLE_STAT_SAMPLE = 60;
 
     function poissonCdf(k, lambda) {
       let total = 0;
