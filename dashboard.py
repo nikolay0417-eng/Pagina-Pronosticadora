@@ -37,6 +37,7 @@ def build_payload(matches):
         "teamsByCompetition": teams_by_competition(matches),
         "teamMetrics": team_metrics(matches),
         "teamStrengths": team_strengths_payload(matches, model_config),
+        "statStrengths": stat_strengths_payload(matches, model_config),
         "modelConfig": model_config,
         "standings": standings_payload(matches),
         "upcoming": fixture_rows(upcoming),
@@ -72,6 +73,57 @@ def team_strengths_payload(matches, model_config):
                 for team, values in strengths["teams"].items()
             },
         }
+    return payload
+
+
+# Estadisticas extra que el predictor visual puede proyectar, con la muestra
+# minima que exige poisson_model para considerarlas utilizables.
+EXTRA_STATS = [
+    ("corners", "corners_local", "corners_visitante"),
+    ("cards", "amarillas_local", "amarillas_visitante"),
+]
+MIN_STAT_SAMPLE = 8
+
+
+def stat_strengths_payload(matches, model_config):
+    """Fuerzas de corners y tarjetas por liga, para que el predictor del panel
+    proyecte esas lineas con el mismo modelo que usa el CLI."""
+    payload = {}
+    competitions = sorted(matches["competicion_codigo"].dropna().unique().tolist())
+
+    for key, home_col, away_col in EXTRA_STATS:
+        if home_col not in matches.columns:
+            continue
+
+        by_competition = {}
+        for competition in competitions:
+            strengths = stat_strengths(
+                matches,
+                home_col,
+                away_col,
+                competition=competition,
+                half_life_days=model_config["half_life_days"],
+                shrinkage_k=model_config["shrinkage_k"],
+            )
+            if not strengths["available"] or strengths["sample"] < MIN_STAT_SAMPLE:
+                continue
+
+            by_competition[competition] = {
+                "leagueAvgHome": round(strengths["league_avg_home"], 3),
+                "leagueAvgAway": round(strengths["league_avg_away"], 3),
+                "sample": strengths["sample"],
+                "teams": {
+                    team: {
+                        "attack": round(values["attack"], 3),
+                        "defense": round(values["defense"], 3),
+                    }
+                    for team, values in strengths["teams"].items()
+                },
+            }
+
+        if by_competition:
+            payload[key] = by_competition
+
     return payload
 
 
@@ -597,6 +649,10 @@ HTML_TEMPLATE = r"""<!doctype html>
           ${prediction.topScores.map((s, i) => `<p>${i + 1}. ${s.score} - <b>${s.prob}%</b></p>`).join("")}
         </div>
         <div class="grid">
+          ${statPanel("Corners", "corners", predictStat("corners", competition, home, away, CORNER_LINES))}
+          ${statPanel("Tarjetas amarillas", "amarillas", predictStat("cards", competition, home, away, CARD_LINES))}
+        </div>
+        <div class="grid">
           <div class="panel"><h3>Local</h3>${teamBlock(competition, home, "home")}</div>
           <div class="panel"><h3>Visitante</h3>${teamBlock(competition, away, "away")}</div>
         </div>
@@ -669,6 +725,71 @@ HTML_TEMPLATE = r"""<!doctype html>
       const comp = DATA.teamStrengths[competition];
       if (comp && comp.teams[team]) return comp.teams[team];
       return { attack: 1, defense: 1 };
+    }
+
+    // Mismas lineas y misma muestra minima confiable que usa predictor.py.
+    const CORNER_LINES = [7.5, 8.5, 9.5, 10.5, 11.5];
+    const CARD_LINES = [2.5, 3.5, 4.5, 5.5];
+    const RELIABLE_STAT_SAMPLE = 60;
+
+    function poissonCdf(k, lambda) {
+      let total = 0;
+      for (let i = 0; i <= k; i++) total += poissonPmf(i, lambda);
+      return Math.min(1, total);
+    }
+
+    function predictStat(statKey, competition, home, away, lines) {
+      const byCompetition = DATA.statStrengths[statKey];
+      const comp = byCompetition ? byCompetition[competition] : null;
+      if (!comp) return null;
+
+      const h = comp.teams[home] || { attack: 1, defense: 1 };
+      const a = comp.teams[away] || { attack: 1, defense: 1 };
+      const lambdaHome = Math.max(0.1, h.attack * a.defense * comp.leagueAvgHome);
+      const lambdaAway = Math.max(0.1, a.attack * h.defense * comp.leagueAvgAway);
+      const total = lambdaHome + lambdaAway;
+
+      const rows = lines.map(line => {
+        const over = Math.max(0, Math.min(1, 1 - poissonCdf(Math.floor(line), total)));
+        return { line, over: round(over * 100, 1), under: round((1 - over) * 100, 1) };
+      });
+
+      let best = null;
+      rows.forEach(r => {
+        [["Over", r.over], ["Under", r.under]].forEach(([side, prob]) => {
+          if (!best || prob > best.prob) best = { name: `${side} ${r.line}`, prob };
+        });
+      });
+
+      return {
+        expectedTotal: round(total, 2),
+        expectedHome: round(lambdaHome, 2),
+        expectedAway: round(lambdaAway, 2),
+        sample: comp.sample,
+        shortSample: comp.sample < RELIABLE_STAT_SAMPLE,
+        lines: rows,
+        best,
+      };
+    }
+
+    function statPanel(title, unit, projection) {
+      if (!projection) {
+        return `<div class="panel"><h3>${title}</h3>
+          <p class="empty">Sin datos suficientes todavia en esta liga.<br>
+          Para habilitarlo corre: <code>python api_football.py --mode stats</code></p></div>`;
+      }
+      const aviso = projection.shortSample
+        ? `<p class="empty" style="padding:0 0 8px">Muestra corta (${projection.sample} partidos): tomar con pinzas.</p>`
+        : `<p class="empty" style="padding:0 0 8px">Muestra: ${projection.sample} partidos.</p>`;
+      const ladder = projection.lines
+        .map(r => `<p>Over ${r.line} ${unit} - <b>${r.over}%</b> <span style="opacity:.6">/ Under ${r.under}%</span></p>`)
+        .join("");
+      return `<div class="panel"><h3>${title}</h3>
+        <p style="margin:0 0 6px">Proyeccion: <b>${projection.expectedTotal}</b>
+        (${projection.expectedHome} local + ${projection.expectedAway} visitante)</p>
+        ${aviso}${ladder}
+        <p style="margin-top:8px">Mejor mercado: <b>${projection.best.name} ${unit} - ${projection.best.prob}%</b></p>
+      </div>`;
     }
 
     function predictVisual(competition, home, away) {

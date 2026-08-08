@@ -255,7 +255,14 @@ def predict_goals(matches, home_team, away_team, competition=None, config=None):
     }
 
 
-def predict_stat_total(matches, home_team, away_team, home_col, away_col, competition=None, config=None, line=8.5, min_sample=8):
+def predict_stat_total(matches, home_team, away_team, home_col, away_col, competition=None, config=None, lines=(8.5,), min_sample=8):
+    """Proyecta el total de una estadistica (corners, tarjetas) y evalua varias lineas.
+
+    Calcula la fuerza de cada equipo una sola vez y de ahi deriva la probabilidad
+    de cada linea, porque recalcular las fuerzas por linea seria repetir el paso
+    caro sin necesidad. Devuelve los dos lados: cuando el over de una linea es
+    bajo, el under de esa misma linea es un mercado igual de valido.
+    """
     config = config or load_model_config()
     strengths = stat_strengths(
         matches,
@@ -267,7 +274,7 @@ def predict_stat_total(matches, home_team, away_team, home_col, away_col, compet
     )
 
     if not strengths["available"] or strengths["sample"] < min_sample:
-        return {"available": False}
+        return {"available": False, "sample": strengths.get("sample", 0)}
 
     home = strengths["teams"].get(home_team, DEFAULT_TEAM_STRENGTH)
     away = strengths["teams"].get(away_team, DEFAULT_TEAM_STRENGTH)
@@ -276,12 +283,23 @@ def predict_stat_total(matches, home_team, away_team, home_col, away_col, compet
     lambda_away = max(0.1, away["attack"] * home["defense"] * strengths["league_avg_away"])
     expected_total = lambda_home + lambda_away
 
-    over_probability = 1 - poisson_cdf(math.floor(line), expected_total)
-    over_probability = max(0.0, min(1.0, over_probability))
+    evaluated = []
+    for line in lines:
+        over = 1 - poisson_cdf(math.floor(line), expected_total)
+        over = max(0.0, min(1.0, over))
+        evaluated.append(
+            {
+                "line": line,
+                "over_probability": round(over * 100, 1),
+                "under_probability": round((1 - over) * 100, 1),
+            }
+        )
 
     return {
         "available": True,
         "expected_total": round(expected_total, 2),
-        "over_probability": round(over_probability * 100, 1),
+        "expected_home": round(lambda_home, 2),
+        "expected_away": round(lambda_away, 2),
+        "lines": evaluated,
         "sample": strengths["sample"],
     }

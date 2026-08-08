@@ -120,6 +120,11 @@ def format_prediction(prediction):
         "Tabla:",
         f"- {format_standing_line(prediction['standings']['home'])}",
         f"- {format_standing_line(prediction['standings']['away'])}",
+    ]
+
+    lines.extend(_format_advanced_block(prediction.get("advanced_context") or {}))
+
+    lines += [
         "",
         "Mercados sugeridos:",
     ]
@@ -161,6 +166,57 @@ def format_prediction(prediction):
 
     lines.extend(f"- {signal}" for signal in prediction["signals"])
     return "\n".join(lines)
+
+
+STAT_LABELS = {
+    "corners": ("Corners", "corners"),
+    "yellow_cards": ("Tarjetas amarillas", "tarjetas amarillas"),
+}
+
+
+def _format_advanced_block(context):
+    """Seccion de corners y tarjetas del pronostico."""
+    if not context:
+        return []
+
+    lines = ["", "Corners y tarjetas:"]
+
+    for key, (title, unit) in STAT_LABELS.items():
+        projection = context.get(key) or {}
+
+        if not projection.get("available"):
+            sample = projection.get("sample", 0)
+            lines.append(
+                f"- {title}: sin datos suficientes todavia "
+                f"({sample} partidos con esta estadistica en la liga)."
+            )
+            lines.append(
+                "    Para habilitarlo: python .\\api_football.py --mode stats"
+            )
+            continue
+
+        sample = projection["sample"]
+        aviso = "  <- muestra corta, tomar con pinzas" if sample < RELIABLE_STAT_SAMPLE else ""
+        lines.append(
+            f"- {title}: proyeccion {projection['expected_total']} "
+            f"({projection['expected_home']} local + {projection['expected_away']} visitante) "
+            f"| muestra: {sample} partidos{aviso}"
+        )
+
+        ladder = "  |  ".join(
+            f"Over {entry['line']}: {entry['over_probability']}%"
+            for entry in projection["lines"]
+        )
+        lines.append(f"    {ladder}")
+
+        best = _best_stat_market(projection, key, unit, min_probability=0)
+        if best:
+            lines.append(
+                f"    Mejor mercado: {best['name']} - {best['probability']}% "
+                f"- confianza {best['confidence']}"
+            )
+
+    return lines
 
 
 def _confidence(home_recent, away_recent, home_home, away_away, direct):
@@ -266,51 +322,78 @@ def _probable_scores(top_scores):
     ]
 
 
+# Lineas que se evaluan para cada estadistica. Se prueban varias porque la que
+# da un mercado interesante depende del partido: en uno parejo de pocos corners
+# el valor esta en el under 8.5, y en uno de mucho ataque en el over 10.5.
+CORNER_LINES = (7.5, 8.5, 9.5, 10.5, 11.5)
+CARD_LINES = (2.5, 3.5, 4.5, 5.5)
+
+# Muestra minima para confiar en el mercado. Por debajo se sigue mostrando la
+# proyeccion, pero no se sugiere como pick.
+RELIABLE_STAT_SAMPLE = 60
+
+
+def _best_stat_market(projection, label, unit, min_probability=62):
+    """Elige la linea y el lado (over/under) con mas probabilidad."""
+    if not projection.get("available"):
+        return None
+
+    best = None
+    for entry in projection["lines"]:
+        for side, probability in (
+            ("Over", entry["over_probability"]),
+            ("Under", entry["under_probability"]),
+        ):
+            if best is None or probability > best["probability"]:
+                best = {
+                    "name": f"{side} {entry['line']} {unit}",
+                    "probability": probability,
+                    "line": entry["line"],
+                    "side": side,
+                }
+
+    if best is None or best["probability"] < min_probability:
+        return None
+
+    best["confidence"] = _market_confidence(best["probability"])
+    best["min_probability"] = min_probability
+    best["stat"] = label
+    best["sample"] = projection["sample"]
+
+    # Con muestra chica la proyeccion existe pero no es confiable: la degradamos
+    # en vez de ocultarla, asi se ve pero no compite de igual a igual en picks.
+    if projection["sample"] < RELIABLE_STAT_SAMPLE:
+        best["confidence"] = "baja"
+        best["muestra_corta"] = True
+
+    return best
+
+
 def _advanced_markets(matches, home_team, away_team, competition, model_config=None):
     markets = []
     context = {}
 
-    corners = poisson_model.predict_stat_total(
-        matches,
-        home_team,
-        away_team,
-        "corners_local",
-        "corners_visitante",
-        competition=competition,
-        config=model_config,
-        line=8.5,
-    )
-    context["corners"] = corners
-    if corners.get("available") and corners["over_probability"] >= 62:
-        markets.append(
-            {
-                "name": "Over 8.5 corners",
-                "probability": corners["over_probability"],
-                "confidence": _market_confidence(corners["over_probability"]),
-                "min_probability": 62,
-            }
-        )
+    specs = [
+        ("corners", "corners_local", "corners_visitante", CORNER_LINES, "corners"),
+        ("yellow_cards", "amarillas_local", "amarillas_visitante", CARD_LINES, "tarjetas amarillas"),
+    ]
 
-    yellow_cards = poisson_model.predict_stat_total(
-        matches,
-        home_team,
-        away_team,
-        "amarillas_local",
-        "amarillas_visitante",
-        competition=competition,
-        config=model_config,
-        line=3.5,
-    )
-    context["yellow_cards"] = yellow_cards
-    if yellow_cards.get("available") and yellow_cards["over_probability"] >= 62:
-        markets.append(
-            {
-                "name": "Over 3.5 tarjetas amarillas",
-                "probability": yellow_cards["over_probability"],
-                "confidence": _market_confidence(yellow_cards["over_probability"]),
-                "min_probability": 62,
-            }
+    for key, home_col, away_col, lines, unit in specs:
+        projection = poisson_model.predict_stat_total(
+            matches,
+            home_team,
+            away_team,
+            home_col,
+            away_col,
+            competition=competition,
+            config=model_config,
+            lines=lines,
         )
+        context[key] = projection
+
+        best = _best_stat_market(projection, key, unit)
+        if best:
+            markets.append(best)
 
     return markets, context
 

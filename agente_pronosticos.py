@@ -291,6 +291,7 @@ def print_picks(matches, target_date=None, competition=None, limit=10, market=No
                     "market": suggestion["name"],
                     "probability": suggestion["probability"],
                     "confidence": suggestion["confidence"],
+                    "short_sample": suggestion.get("muestra_corta", False),
                     "recommendation": prediction["recommendation"],
                 }
             )
@@ -302,10 +303,11 @@ def print_picks(matches, target_date=None, competition=None, limit=10, market=No
 
     print("Top oportunidades:")
     for index, pick in enumerate(picks[:limit], start=1):
+        aviso = " (muestra corta)" if pick.get("short_sample") else ""
         print(
             f"{index}. {pick['date']} | {pick['competition']} | "
             f"{pick['home']} vs {pick['away']} | {pick['market']} "
-            f"- {pick['probability']}% - confianza {pick['confidence']}"
+            f"- {pick['probability']}% - confianza {pick['confidence']}{aviso}"
         )
 
 

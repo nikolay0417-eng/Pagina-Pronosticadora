@@ -251,8 +251,35 @@ estadistico que usan las casas de apuestas y los papers de analitica de futbol d
    Dixon-Coles para los marcadores bajos.
 3. De esa matriz salen 1X2, over/under exactos, ambos marcan y el marcador mas probable — ya no
    son aproximaciones lineales, son la probabilidad real segun el modelo.
-4. Corners y tarjetas amarillas usan el mismo motor (Poisson independiente) para las lineas
-   over 8.5 corners / over 3.5 amarillas.
+4. Corners y tarjetas amarillas usan el mismo motor (Poisson independiente), evaluando varias
+   lineas de una sola pasada: 7.5 a 11.5 en corners y 2.5 a 5.5 en amarillas. Se calculan los
+   dos lados, porque cuando el over de una linea es bajo el under de esa misma linea es un
+   mercado igual de valido.
+
+### Corners y tarjetas en el pronostico
+
+Tanto el pronostico del CLI como el del panel visual muestran una seccion propia con la
+proyeccion, la escalera completa de lineas y el mejor mercado:
+
+```text
+Corners y tarjetas:
+- Corners: proyeccion 8.81 (3.88 local + 4.93 visitante) | muestra: 33 partidos  <- muestra corta
+    Over 7.5: 65.4%  |  Over 8.5: 51.9%  |  Over 9.5: 38.8%  |  Over 10.5: 27.2%  |  Over 11.5: 17.9%
+    Mejor mercado: Under 11.5 corners - 82.1%
+```
+
+Estos mercados tambien entran en **mejores picks**, y se pueden filtrar:
+
+```powershell
+python .\agente_pronosticos.py picks --date 2026-08-08 --market corners
+python .\agente_pronosticos.py picks --date 2026-08-08 --market tarjetas
+```
+
+**Sobre la muestra**: mientras la liga tenga menos de 60 partidos con estadisticas cargadas, la
+proyeccion se muestra igual pero marcada como `muestra corta` y con confianza `baja`, porque con
+pocos partidos las fuerzas por equipo todavia son ruido. No esta oculta, pero tampoco se hace
+pasar por solida. Para que suba, hay que ir corriendo `--mode stats` (ver arriba): cada corrida
+diaria suma ~95 partidos.
 
 El historial directo (head-to-head) y la posicion en la tabla se muestran como contexto
 informativo en las senales, pero ya no inflan artificialmente la probabilidad: la evidencia en
