@@ -22,7 +22,12 @@ def parse_args():
     parser.add_argument(
         "--actualizar-datos",
         action="store_true",
-        help="Descarga datos nuevos con API-Football.py antes de generar el panel (puede tardar varios minutos).",
+        help="Cosecha los partidos de la temporada en curso con api_football.py antes de generar el panel.",
+    )
+    parser.add_argument(
+        "--rellenar-stats",
+        action="store_true",
+        help="Ademas, gasta la cuota del dia rellenando corners y tarjetas de partidos historicos.",
     )
     parser.add_argument(
         "--calibrar",
@@ -40,7 +45,10 @@ def main():
     python = sys.executable
 
     if args.actualizar_datos:
-        run([python, "API-Football.py"])
+        run([python, "api_football.py", "--mode", "daily"])
+
+    if args.rellenar_stats:
+        run([python, "api_football.py", "--mode", "stats"])
 
     if args.calibrar:
         run(

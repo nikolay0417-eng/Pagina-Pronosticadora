@@ -11,9 +11,31 @@ ZONE_RULES = {
     "PPL": {"title": 3, "champions": 2, "europa": 4, "conference": 5, "relegation": 16},
     "BSA": {"title": 4, "champions": 6, "europa": 12, "conference": 0, "relegation": 17},
     "ELC": {"title": 2, "champions": 0, "europa": 0, "conference": 0, "relegation": 22},
+    # En Colombia, Argentina y Mexico el titulo se define en playoffs, asi que
+    # "pelea campeonato" marca los puestos que clasifican a esa fase final.
+    "COL": {"title": 8, "champions": 0, "europa": 0, "conference": 0, "relegation": 19},
+    "COLB": {"title": 8, "champions": 0, "europa": 0, "conference": 0, "relegation": 0},
+    "ARG": {"title": 8, "champions": 0, "europa": 0, "conference": 0, "relegation": 27},
+    "MEX": {"title": 6, "champions": 0, "europa": 10, "conference": 0, "relegation": 0},
+    "MLS": {"title": 9, "champions": 0, "europa": 0, "conference": 0, "relegation": 0},
+    "BL2": {"title": 3, "champions": 0, "europa": 0, "conference": 0, "relegation": 16},
+    "JPL": {"title": 6, "champions": 0, "europa": 0, "conference": 0, "relegation": 16},
+    "SPFL": {"title": 3, "champions": 0, "europa": 0, "conference": 0, "relegation": 11},
 }
 
 DOMESTIC_LEAGUES = set(ZONE_RULES.keys())
+
+# El recolector nuevo guarda el ano de temporada en "temporada"; el esquema
+# viejo de football-data.org usaba "temporada_inicio". Aceptamos los dos para
+# que los datasets guardados de antes se sigan pudiendo leer.
+SEASON_COLUMNS = ("temporada", "temporada_inicio")
+
+
+def season_column(matches):
+    for column in SEASON_COLUMNS:
+        if column in matches.columns:
+            return column
+    return None
 
 
 def latest_competition_for_match(matches, home_team, away_team):
@@ -40,14 +62,25 @@ def latest_season_for_competition(matches, competition):
     competition_matches = matches[matches["competicion_codigo"].eq(competition)]
     if competition_matches.empty:
         return None
-    return competition_matches.sort_values("fecha_utc")["temporada_inicio"].iloc[-1]
+    column = season_column(competition_matches)
+    if not column:
+        return None
+
+    # Una tabla solo tiene sentido sobre partidos ya jugados. Cuando la temporada
+    # en curso todavia no tiene resultados (pretemporada, o las primeras fechas),
+    # caemos a la ultima temporada que si los tiene en vez de devolver una tabla
+    # vacia.
+    played = finished_matches(competition_matches)
+    source = played if not played.empty else competition_matches
+    return source.sort_values("fecha_utc")[column].iloc[-1]
 
 
 def build_table(matches, competition, season_start=None):
     matches = finished_matches(matches)
     matches = matches[matches["competicion_codigo"].eq(competition)].copy()
-    if season_start:
-        matches = matches[matches["temporada_inicio"].eq(season_start)].copy()
+    column = season_column(matches)
+    if season_start is not None and column:
+        matches = matches[matches[column].eq(season_start)].copy()
 
     table = {}
     for _, row in matches.iterrows():

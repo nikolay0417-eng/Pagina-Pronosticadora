@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 .claude/
 api_key.txt
+api_football_key.txt

@@ -1,6 +1,9 @@
 # Agente Deportivo
 
-Proyecto local para recolectar partidos de football-data.org y generar pronosticos deportivos explicables usando el historial descargado.
+Proyecto local para recolectar partidos de **API-FOOTBALL** y generar pronosticos deportivos
+explicables usando el historial descargado. Cubre 21 competiciones configuradas, incluida la
+**Primera A colombiana (Liga BetPlay)**, con estadisticas reales por partido: corners, tarjetas,
+tiros, posesion, faltas y pases.
 
 ## Ejecucion rapida (un solo paso)
 
@@ -22,36 +25,64 @@ hace falta repetirlos cada vez). Si los queres incluir:
 python .\ejecutar_todo.py --actualizar-datos --calibrar
 ```
 
-Flags disponibles: `--actualizar-datos` (corre `API-Football.py`), `--calibrar` (corre
-`calibrate`, acepta `--competition` y `--limit`), `--sin-abrir` (no abre el navegador al final).
+Flags disponibles: `--actualizar-datos` (cosecha la temporada en curso), `--rellenar-stats`
+(rellena corners y tarjetas gastando la cuota del dia), `--calibrar` (corre `calibrate`, acepta
+`--competition` y `--limit`), `--sin-abrir` (no abre el navegador al final).
 
 El resto de esta guia explica cada paso por separado, para cuando quieras correrlos de forma
 individual.
 
 ## 1. Actualizar datos
 
-Primero conseguí una API key gratis en [football-data.org](https://www.football-data.org/client/register)
-y definila como variable de entorno (no va escrita en el codigo, asi el repo se puede publicar
-sin exponerla):
+La fuente de datos es [API-FOOTBALL](https://dashboard.api-football.com/register). Conseguí una
+key gratis ahi y guardala en un archivo `api_football_key.txt` en la carpeta del proyecto (ese
+archivo esta en `.gitignore`, asi que no se publica). Tambien podes usar la variable de entorno
+`API_FOOTBALL_KEY`.
+
+### Los tres modos de recoleccion
+
+El plan gratuito tiene tres limites que definen como se recolecta:
+
+- **100 solicitudes por dia.**
+- **Historicos solo de 2022, 2023 y 2024.**
+- **Por fecha, solo una ventana de hoy a hoy+2 dias** — pero esa ventana si expone la temporada
+  en curso de todas las ligas.
+
+Por eso hay tres modos que se complementan:
 
 ```powershell
-$env:FOOTBALL_DATA_API_KEY = "tu_key"
+# Resultados historicos. Barato: 1 solicitud trae la temporada completa de una liga.
+python .\api_football.py --mode backfill
+
+# Corners y tarjetas, partido por partido. Caro (1 solicitud c/u) pero REANUDABLE:
+# corre un rato cada dia y va completando sin perder lo ya hecho.
+python .\api_football.py --mode stats
+
+# Temporada en curso. Es lo que hay que correr a diario.
+python .\api_football.py --mode daily
 ```
 
-Esa variable solo dura en la sesion actual de PowerShell; si abris una terminal nueva hay que
-definirla de nuevo (o agregarla a tu perfil de PowerShell si la usas seguido).
-
-Por defecto descarga todas las competiciones disponibles desde la temporada 2024 hasta la actual:
+Ver las ligas configuradas y cuanta cuota te queda:
 
 ```powershell
-python .\API-Football.py
+python .\api_football.py --mode leagues
+python .\api_football.py --mode quota
 ```
 
-Tambien puedes descargar una competicion especifica:
+Filtrar por liga en cualquier modo:
 
 ```powershell
-python .\API-Football.py --mode recent-history --competition PL --from-season 2024 --status FINISHED --output premier_desde_2024
+python .\api_football.py --mode backfill --leagues COL
+python .\api_football.py --mode stats --leagues COL PL PD
 ```
+
+### Por que el modo `stats` va de a poco
+
+Traer las estadisticas cuesta **1 solicitud por partido**, asi que con 100 por dia se completan
+unos 95 partidos diarios. El script recuerda cuales ya bajo (en `data/api_football_state.json`)
+y cuales no tienen estadisticas disponibles, asi que podes correrlo todos los dias sin repetir
+trabajo. El dataset funciona igual mientras tanto: los pronosticos de goles y 1X2 solo necesitan
+los resultados, que ya estan completos desde el `backfill`.
 
 ## 2. Usar el agente
 
@@ -130,7 +161,9 @@ python .\agente_pronosticos.py profile --team "Real Madrid"
 python .\agente_pronosticos.py profile --team "Real Madrid" --competition LaLiga
 ```
 
-Puedes escribir ligas con nombres normales: `LaLiga`, `Premier`, `Serie A`, `Bundesliga`, `Ligue 1`, `Champions`, `Libertadores`, `Brasil`, `Portugal`, `Francia`, `España`.
+Puedes escribir ligas con nombres normales: `Colombia`, `Liga BetPlay`, `Dimayor`, `LaLiga`,
+`Premier`, `Serie A`, `Bundesliga`, `Ligue 1`, `Champions`, `Europa League`, `Libertadores`,
+`Sudamericana`, `Brasil`, `Argentina`, `Liga MX`, `Portugal`, `Francia`, `España`.
 
 Medir precision del agente con historicos:
 
@@ -182,19 +215,26 @@ hora local ya convertida. Si alguna vez corres esto desde otro pais, cambia `LOC
 
 ## Estadisticas Avanzadas
 
-El recolector intenta guardar estas columnas si la API las entrega:
+El modo `stats` guarda estas columnas (cada una con sufijo `_local` y `_visitante`):
 
 ```text
-corners_local, corners_visitante
-amarillas_local, amarillas_visitante
-rojas_local, rojas_visitante
-faltas_local, faltas_visitante
-tiros_local, tiros_visitante
-tiros_arco_local, tiros_arco_visitante
-posesion_local, posesion_visitante
+corners            amarillas          rojas
+tiros              tiros_arco         tiros_fuera
+tiros_bloqueados   tiros_dentro_area  tiros_fuera_area
+faltas             fuera_juego        posesion
+atajadas           pases_totales      pases_completados
+pases_precision    xg                 goles_evitados
 ```
 
-Si al actualizar datos esas columnas quedan vacias, significa que el endpoint de lista no las esta entregando para tu plan o respuesta actual. El siguiente paso seria consultar detalle por partido, que consume muchas mas solicitudes de API.
+`xg` y `goles_evitados` vienen vacios en varias ligas: API-FOOTBALL solo calcula xG en las
+competiciones con cobertura ampliada. El resto de las columnas si llega completo en la Primera A
+colombiana y en las ligas grandes.
+
+Para ver cuanto del dataset ya tiene estadisticas:
+
+```powershell
+python -c "import pandas as pd; d=pd.read_csv('data/partidos.csv'); print(d.groupby('competicion_codigo')['corners_local'].agg(['count','size']))"
+```
 
 ## Como funciona el modelo
 
@@ -231,17 +271,23 @@ mercados con mejor pinta.
 
 ## Proximo paso: mas datos
 
-Para llevar esto mas lejos con informacion que football-data.org no entrega (cuotas reales de
-mercado, xG, lesiones, alineaciones), dos opciones para cuando quieras sumarlas — ninguna esta
-integrada todavia, hace falta que crees la cuenta y consigas la API key:
+Lo que ya trae API-FOOTBALL y todavia no se esta usando:
 
-- **[The Odds API](https://the-odds-api.com/)**: cuotas reales de multiples casas de apuestas.
-  Plan gratuito con 500 solicitudes/mes. Sirve para comparar la probabilidad que calcula este
-  modelo contra la cuota real del mercado y detectar "value bets" (cuando el modelo ve mas
-  probabilidad de la que paga la cuota).
-- **[API-FOOTBALL](https://www.api-football.com/)** (tambien disponible via RapidAPI): estadisticas
-  avanzadas por partido (tiros, posesion, xG en las ligas principales), lesiones y alineaciones
-  probables antes del partido. Plan gratuito con 100 solicitudes/dia.
+- **Cuotas reales** (`/odds`): comparar la probabilidad del modelo contra la cuota del mercado
+  para detectar "value bets" (cuando el modelo ve mas probabilidad de la que paga la cuota).
+- **Lesiones** (`/injuries`) y **alineaciones probables** (`/fixtures/lineups`).
+- **xG**: ya viene en las columnas `xg_local` / `xg_visitante` donde la liga lo tenga.
 
-Cuando tengas una key de alguno, se puede sumar como una fuente de datos mas sin tocar el modelo
-Poisson (son capas independientes).
+Si en algun momento el limite de 100 solicitudes diarias molesta, el plan Pro
+(~USD 19/mes, 7.500 solicitudes/dia) levanta ademas el tope de temporadas historicas: se podria
+bajar la temporada en curso completa de un tiron en vez de acumularla dia a dia, y rellenar las
+estadisticas de las 14.000 partidos en una sola corrida en vez de a lo largo de varios meses.
+No hace falta tocar el codigo: el mismo script aprovecha la cuota mas alta automaticamente.
+
+## Historial: football-data.org
+
+El proyecto usaba antes [football-data.org](https://www.football-data.org/). Se reemplazo porque
+no cubre la liga colombiana y porque su plan gratuito dejaba vacias todas las columnas de
+corners y tarjetas. El recolector viejo sigue en `API-Football.py` (nombre confuso: apunta a
+football-data.org) y el dataset que genero quedo guardado en
+`data/partidos_football_data_org.csv` por si lo queres comparar.
